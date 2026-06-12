@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 
+// Mock data as fallback (moved outside component to fix eslint)
+const mockBudgetData = [
+  { name: 'HHS', value: 2170 },
+  { name: 'Social Security', value: 1545 },
+  { name: 'Defense', value: 820 },
+  { name: 'Veterans Affairs', value: 301 },
+  { name: 'Education', value: 238 },
+  { name: 'Transportation', value: 146 },
+  { name: 'Homeland Security', value: 131 },
+  { name: 'State Dept', value: 92 }
+];
+
 const FinancialDashboard = () => {
   const [currentPage, setCurrentPage] = useState('overview');
   const [selectedYear, setSelectedYear] = useState(2024);
@@ -10,18 +22,6 @@ const FinancialDashboard = () => {
   const [jobsData, setJobsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState('loading...');
-
-  // Mock data as fallback
-  const mockBudgetData = [
-    { name: 'HHS', value: 2170 },
-    { name: 'Social Security', value: 1545 },
-    { name: 'Defense', value: 820 },
-    { name: 'Veterans Affairs', value: 301 },
-    { name: 'Education', value: 238 },
-    { name: 'Transportation', value: 146 },
-    { name: 'Homeland Security', value: 131 },
-    { name: 'State Dept', value: 92 }
-  ];
 
   useEffect(() => {
     const fetchData = async () => {
