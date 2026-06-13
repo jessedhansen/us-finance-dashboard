@@ -1,10 +1,11 @@
 /**
- * Backend with ACCURATE numbers from US Treasury
- * Source: fiscal.treasury.gov
+ * Backend - CORRECT Treasury API Endpoint
+ * Base: https://api.fiscaldata.treasury.gov/services/api/fiscal_service
  */
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
@@ -12,22 +13,90 @@ export default function handler(req, res) {
     return;
   }
 
-  // ACCURATE data from US Treasury Website (fiscal.treasury.gov)
-  // Values in billions
-  res.status(200).json({
-    success: true,
-    data: {
-      2026: { year: 2026, revenue: 5000, deficit: 1900, spent: 6900 },
-      2025: { year: 2025, revenue: 4850, deficit: 1850, spent: 6700 },
-      2024: { year: 2024, revenue: 4920, deficit: 1830, spent: 6750 },
-      2023: { year: 2023, revenue: 4762, deficit: 1695, spent: 6457 },
-      2022: { year: 2022, revenue: 4896, deficit: 1375, spent: 6271 },
-      2021: { year: 2021, revenue: 4048, deficit: 2772, spent: 6820 },
-      2020: { year: 2020, revenue: 3421, deficit: 3132, spent: 6553 },
-      2019: { year: 2019, revenue: 3463, deficit: 984, spent: 4447 },
-      2018: { year: 2018, revenue: 3643, deficit: 339, spent: 3982 },
-      2017: { year: 2017, revenue: 3316, deficit: 444, spent: 3760 }
-    },
-    source: 'US Treasury (fiscal.treasury.gov)'
-  });
+  try {
+    console.log('🔄 Fetching from Treasury API with CORRECT endpoint...');
+
+    // CORRECT endpoint format
+    const baseUrl = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service';
+    const endpoint = '/v2/accounting/od/receipts_outlays_summary';
+    const fullUrl = baseUrl + endpoint + '?sort=-record_date&limit=500';
+
+    console.log('📡 URL:', fullUrl);
+
+    const response = await fetch(fullUrl);
+    
+    console.log('✅ Response status:', response.status);
+
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+
+    const apiData = await response.json();
+    console.log('✅ Got data! Records:', apiData.data?.length);
+
+    if (!apiData.data || apiData.data.length === 0) {
+      throw new Error('No data in response');
+    }
+
+    // Parse data by year
+    const byYear = {};
+
+    apiData.data.forEach(record => {
+      const year = parseInt(record.record_date.substring(0, 4));
+      
+      if (!byYear[year]) {
+        byYear[year] = {
+          totalReceipts: 0,
+          totalOutlays: 0,
+          records: 0
+        };
+      }
+
+      const receipts = parseFloat(record.net_collections_operating_cash) || 0;
+      const outlays = parseFloat(record.outlays_operating_cash) || 0;
+
+      byYear[year].totalReceipts += receipts;
+      byYear[year].totalOutlays += outlays;
+      byYear[year].records += 1;
+    });
+
+    // Convert to billions - EXACT VALUES
+    const result = {};
+    Object.keys(byYear).sort().reverse().forEach(year => {
+      const data = byYear[year];
+      
+      const revenue = data.totalReceipts / 1000000; // millions to billions
+      const spent = data.totalOutlays / 1000000;
+      const deficit = spent - revenue;
+
+      result[year] = {
+        year: parseInt(year),
+        revenue: parseFloat(revenue.toFixed(2)),
+        deficit: parseFloat(deficit.toFixed(2)),
+        spent: parseFloat(spent.toFixed(2)),
+        records: data.records
+      };
+
+      console.log(`✅ Year ${year}: Revenue=$${revenue.toFixed(2)}B, Deficit=$${deficit.toFixed(2)}B, Spent=$${spent.toFixed(2)}B`);
+    });
+
+    console.log('✅ SUCCESS - Returning', Object.keys(result).length, 'years of REAL data');
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      source: 'Treasury Fiscal Data API (REAL DATA)',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ ERROR:', error.message);
+    
+    // Return error so we can debug
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      source: 'ERROR'
+    });
+  }
 }
