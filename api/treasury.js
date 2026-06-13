@@ -1,6 +1,6 @@
 /**
- * Backend - CORRECT Treasury API Endpoint
- * Base: https://api.fiscaldata.treasury.gov/services/api/fiscal_service
+ * Vercel Backend - CORRECT MTS Receipts Outlays Deficit/Surplus Endpoint
+ * This endpoint has exactly what we need: receipts, outlays, and deficit
  */
 
 export default async function handler(req, res) {
@@ -14,12 +14,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🔄 Fetching from Treasury API with CORRECT endpoint...');
+    console.log('🔄 Fetching REAL Treasury data...');
 
-    // CORRECT endpoint format
+    // PERFECT endpoint: Monthly Receipts Outlays and Deficit/Surplus Amounts
     const baseUrl = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service';
-    const endpoint = '/v2/accounting/od/receipts_outlays_summary';
-    const fullUrl = baseUrl + endpoint + '?sort=-record_date&limit=500';
+    const endpoint = '/v1/accounting/mts/mts_receipts_outlays_deficit_surplus';
+    const fullUrl = baseUrl + endpoint + '?sort=-record_date&page[size]=500';
 
     console.log('📡 URL:', fullUrl);
 
@@ -33,66 +33,99 @@ export default async function handler(req, res) {
 
     const apiData = await response.json();
     console.log('✅ Got data! Records:', apiData.data?.length);
+    console.log('📋 Fields:', apiData.meta?.labels);
 
     if (!apiData.data || apiData.data.length === 0) {
       throw new Error('No data in response');
     }
 
-    // Parse data by year
+    // Log first record to see field names
+    console.log('📝 Sample record:', JSON.stringify(apiData.data[0], null, 2).substring(0, 500));
+
+    // Group data by fiscal year
     const byYear = {};
 
     apiData.data.forEach(record => {
-      const year = parseInt(record.record_date.substring(0, 4));
+      // Get fiscal year
+      const year = parseInt(record.record_fiscal_year || record.reporting_fiscal_year || '0');
       
+      if (!year || year === 0) return;
+
       if (!byYear[year]) {
         byYear[year] = {
           totalReceipts: 0,
           totalOutlays: 0,
-          records: 0
+          totalDeficit: 0,
+          count: 0
         };
       }
 
-      const receipts = parseFloat(record.net_collections_operating_cash) || 0;
-      const outlays = parseFloat(record.outlays_operating_cash) || 0;
+      // Parse the amounts - handle both possible field names
+      const receipts = parseFloat(
+        record.total_receipts_amt || 
+        record.month_total_receipts_amt || 
+        record.receipts_amt || 
+        0
+      ) || 0;
+      
+      const outlays = parseFloat(
+        record.total_outlays_amt || 
+        record.month_total_outlays_amt || 
+        record.outlays_amt || 
+        0
+      ) || 0;
+      
+      const deficit = parseFloat(
+        record.deficit_amt || 
+        record.month_deficit_amt ||
+        0
+      ) || (outlays - receipts);
 
+      // Sum up the monthly amounts to get fiscal year totals
       byYear[year].totalReceipts += receipts;
       byYear[year].totalOutlays += outlays;
-      byYear[year].records += 1;
+      byYear[year].totalDeficit += deficit;
+      byYear[year].count += 1;
+
+      if (byYear[year].count <= 3) {
+        console.log(`📝 Year ${year}: Receipts=${receipts}, Outlays=${outlays}, Deficit=${deficit}`);
+      }
     });
 
-    // Convert to billions - EXACT VALUES
+    // Convert to billions and create result
     const result = {};
     Object.keys(byYear).sort().reverse().forEach(year => {
       const data = byYear[year];
       
-      const revenue = data.totalReceipts / 1000000; // millions to billions
-      const spent = data.totalOutlays / 1000000;
-      const deficit = spent - revenue;
+      // Values are in millions, convert to billions
+      const revenue = data.totalReceipts / 1000;
+      const spent = data.totalOutlays / 1000;
+      const deficit = data.totalDeficit / 1000;
 
       result[year] = {
         year: parseInt(year),
         revenue: parseFloat(revenue.toFixed(2)),
         deficit: parseFloat(deficit.toFixed(2)),
-        spent: parseFloat(spent.toFixed(2)),
-        records: data.records
+        spent: parseFloat(spent.toFixed(2))
       };
 
-      console.log(`✅ Year ${year}: Revenue=$${revenue.toFixed(2)}B, Deficit=$${deficit.toFixed(2)}B, Spent=$${spent.toFixed(2)}B`);
+      console.log(`✅ FY ${year}: Revenue=$${revenue.toFixed(2)}B, Spent=$${spent.toFixed(2)}B, Deficit=$${deficit.toFixed(2)}B (${data.count} months)`);
     });
 
-    console.log('✅ SUCCESS - Returning', Object.keys(result).length, 'years of REAL data');
+    console.log('✅ SUCCESS - Returning', Object.keys(result).length, 'years of REAL Treasury data');
 
     res.status(200).json({
       success: true,
       data: result,
-      source: 'Treasury Fiscal Data API (REAL DATA)',
-      timestamp: new Date().toISOString()
+      source: 'Treasury MTS Receipts/Outlays/Deficit (REAL DATA)',
+      timestamp: new Date().toISOString(),
+      yearsIncluded: Object.keys(result).sort()
     });
 
   } catch (error) {
     console.error('❌ ERROR:', error.message);
+    console.error('Stack:', error.stack);
     
-    // Return error so we can debug
     res.status(500).json({
       success: false,
       error: error.message,
