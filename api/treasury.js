@@ -1,5 +1,5 @@
 /**
- * Vercel Backend - Robust version with timeout and better error handling
+ * Vercel Backend - Debug version to see actual field names
  */
 
 export default async function handler(req, res) {
@@ -19,40 +19,36 @@ export default async function handler(req, res) {
     const endpoint = '/v1/accounting/mts/mts_receipts_outlays_deficit_surplus';
     const fullUrl = baseUrl + endpoint + '?sort=-record_date&page[size]=500';
 
-    console.log('📡 URL:', fullUrl);
-
-    // Use AbortController for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     let response;
     try {
       response = await fetch(fullUrl, {
         signal: controller.signal,
-        headers: {
-          'Accept': 'application/json'
-        }
+        headers: { 'Accept': 'application/json' }
       });
     } finally {
       clearTimeout(timeoutId);
     }
 
-    console.log('✅ Response status:', response.status);
-
     if (!response.ok) {
-      const text = await response.text();
-      console.error('❌ API Error:', response.status, text.substring(0, 200));
       throw new Error(`API returned ${response.status}`);
     }
 
     const apiData = await response.json();
     console.log('✅ Got data! Records:', apiData.data?.length);
+    console.log('📋 Available fields:', Object.keys(apiData.data?.[0] || {}));
+    console.log('📝 First 3 records:');
+    apiData.data?.slice(0, 3).forEach((record, idx) => {
+      console.log(`Record ${idx}:`, JSON.stringify(record, null, 2).substring(0, 500));
+    });
 
     if (!apiData.data || apiData.data.length === 0) {
       throw new Error('No data in response');
     }
 
-    // Group data by fiscal year
+    // Group data by fiscal year - FIX: Try all possible field name variations
     const byYear = {};
 
     apiData.data.forEach(record => {
@@ -69,31 +65,29 @@ export default async function handler(req, res) {
         };
       }
 
-      const receipts = parseFloat(
-        record.total_receipts_amt || 
-        record.month_total_receipts_amt || 
-        0
-      ) || 0;
-      
-      const outlays = parseFloat(
-        record.total_outlays_amt || 
-        record.month_total_outlays_amt || 
-        0
-      ) || 0;
-      
-      const deficit = parseFloat(
-        record.deficit_amt || 
-        record.month_deficit_amt ||
-        0
-      ) || (outlays - receipts);
+      // Try MANY possible field names
+      let receipts = 0;
+      let outlays = 0;
+      let deficit = 0;
+
+      // Check all possible field variations
+      for (const key in record) {
+        const val = parseFloat(record[key]) || 0;
+        if (key.toLowerCase().includes('receipt') && val > 0) receipts = val;
+        if (key.toLowerCase().includes('outlay') && val > 0) outlays = val;
+        if (key.toLowerCase().includes('deficit') && val > 0) deficit = val;
+      }
 
       byYear[year].totalReceipts += receipts;
       byYear[year].totalOutlays += outlays;
       byYear[year].totalDeficit += deficit;
       byYear[year].count += 1;
+
+      if (byYear[year].count === 1) {
+        console.log(`Year ${year} sample: receipts=${receipts}, outlays=${outlays}, deficit=${deficit}`);
+      }
     });
 
-    // Convert to billions
     const result = {};
     Object.keys(byYear).sort().reverse().forEach(year => {
       const data = byYear[year];
@@ -112,7 +106,7 @@ export default async function handler(req, res) {
       console.log(`✅ FY ${year}: Revenue=$${revenue.toFixed(2)}B, Spent=$${spent.toFixed(2)}B, Deficit=$${deficit.toFixed(2)}B`);
     });
 
-    console.log('✅ SUCCESS - Returning', Object.keys(result).length, 'years of REAL Treasury data');
+    console.log('✅ SUCCESS - Returning', Object.keys(result).length, 'years');
 
     res.status(200).json({
       success: true,
