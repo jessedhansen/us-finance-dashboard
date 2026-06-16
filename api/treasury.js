@@ -1,6 +1,6 @@
 /**
- * Vercel Backend - CORRECT parsing of Treasury API
- * Field structure: amt_category (Receipts/Outlays), mil_amt (in millions)
+ * Vercel Backend - FINAL VERSION
+ * Correctly sums monthly Receipts and Outlays by fiscal year
  */
 
 export default async function handler(req, res) {
@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🔄 Fetching Treasury API...');
+    console.log('🔄 Fetching Treasury data...');
 
     const url = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/mts/mts_receipts_outlays_deficit_surplus?sort=-record_date&page[size]=500';
     
@@ -33,29 +33,23 @@ export default async function handler(req, res) {
     }
 
     const apiData = await response.json();
-    console.log('✅ Got', apiData.data?.length, 'records from Treasury');
+    console.log('✅ Got', apiData.data?.length, 'records');
 
-    if (!apiData.data || apiData.data.length === 0) {
-      throw new Error('No data');
-    }
-
-    // Group by fiscal year, summing receipts and outlays separately
+    // Group by fiscal year
     const byYear = {};
 
     apiData.data.forEach(record => {
       const year = parseInt(record.record_fiscal_year);
-      const category = record.amt_category; // "Receipts" or "Outlays"
-      const amount = parseFloat(record.mil_amt) || 0; // in millions
+      const category = record.amt_category?.trim();
+      const amount = parseFloat(record.mil_amt) || 0; // mil_amt is in millions
 
       if (!year || year === 0) return;
 
       if (!byYear[year]) {
-        byYear[year] = {
-          receipts: 0,
-          outlays: 0
-        };
+        byYear[year] = { receipts: 0, outlays: 0 };
       }
 
+      // Only sum Receipts and Outlays, ignore other categories
       if (category === 'Receipts') {
         byYear[year].receipts += amount;
       } else if (category === 'Outlays') {
@@ -63,15 +57,11 @@ export default async function handler(req, res) {
       }
     });
 
-    console.log('📊 Years found:', Object.keys(byYear).sort());
-
     // Convert to billions
     const result = {};
     Object.keys(byYear).sort().reverse().forEach(year => {
       const data = byYear[year];
-      
-      // Values are in millions, convert to billions (divide by 1000)
-      const revenue = data.receipts / 1000;
+      const revenue = data.receipts / 1000; // millions to billions
       const spent = data.outlays / 1000;
       const deficit = spent - revenue;
 
@@ -96,7 +86,8 @@ export default async function handler(req, res) {
     console.error('❌ ERROR:', error.message);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      source: 'ERROR'
     });
   }
 }
