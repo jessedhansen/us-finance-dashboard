@@ -11,116 +11,84 @@ export default async function handler(req, res) {
     const BASE_URL =
       'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/mts/mts_receipts_outlays_deficit_surplus';
 
-    let allRecords = [];
+    let all = [];
     let page = 1;
     let totalPages = 1;
 
-    console.log('🔄 Fetching Treasury MTS dataset...');
-
     do {
-      const url =
-        `${BASE_URL}?sort=-record_date&page[number]=${page}&page[size]=1000`;
+      const url = `${BASE_URL}?page[number]=${page}&page[size]=1000&sort=record_date`;
 
-      const response = await fetch(url);
+      const res2 = await fetch(url);
+      const json = await res2.json();
 
-      if (!response.ok) {
-        throw new Error(`Treasury API error: ${response.status}`);
-      }
+      all.push(...(json.data || []));
 
-      const json = await response.json();
-
-      const records = json.data || [];
-      allRecords.push(...records);
-
-      totalPages = Number(
-        json.meta?.['total-pages'] ||
-        json.meta?.total_pages ||
-        1
-      );
-
-      console.log(`📄 Page ${page}/${totalPages} → ${records.length} rows`);
+      totalPages = Number(json.meta?.['total-pages'] || 1);
       page++;
     } while (page <= totalPages);
 
-    console.log(`✅ Total rows fetched: ${allRecords.length}`);
+    console.log('Rows fetched:', all.length);
 
-    // -------------------------------------------------------
-    // FILTER: KEEP ONLY ANNUAL TOTAL ROWS (CRITICAL FIX)
-    // -------------------------------------------------------
-    const annualOnly = allRecords.filter(r => {
-      const category = (r.amt_category || '').toLowerCase();
-      const type = (r.record_type || '').toLowerCase();
-      const description = (r.line_description || '').toLowerCase();
-
+    // -----------------------------
+    // KEEP ONLY REAL TOTAL ROWS
+    // -----------------------------
+    const filtered = all.filter(r => {
+      const desc = (r.line_description || '').toLowerCase();
       return (
-        category === 'total' ||
-        type.includes('annual') ||
-        description.includes('total receipts') ||
-        description.includes('total outlays')
+        desc.includes('total receipts') ||
+        desc.includes('total outlays')
       );
     });
 
-    console.log(`📊 Annual-only rows: ${annualOnly.length}`);
+    console.log('Filtered rows:', filtered.length);
 
-    // -------------------------------------------------------
-    // GROUP BY FISCAL YEAR
-    // -------------------------------------------------------
     const byYear = {};
 
-    for (const r of annualOnly) {
+    for (const r of filtered) {
       const year = Number(r.record_fiscal_year);
-      if (!year || Number.isNaN(year)) continue;
-
-      const category = (r.amt_category || '').toLowerCase();
       const amount = Number(r.mil_amt);
 
-      if (!Number.isFinite(amount)) continue;
+      if (!year || !Number.isFinite(amount)) continue;
 
       if (!byYear[year]) {
         byYear[year] = { receipts: 0, outlays: 0 };
       }
 
-      if (category.includes('receipt')) {
+      const desc = (r.line_description || '').toLowerCase();
+
+      if (desc.includes('total receipts')) {
         byYear[year].receipts += amount;
       }
 
-      if (category.includes('outlay')) {
+      if (desc.includes('total outlays')) {
         byYear[year].outlays += amount;
       }
     }
 
-    // -------------------------------------------------------
-    // FORMAT OUTPUT
-    // -------------------------------------------------------
     const result = {};
 
     Object.keys(byYear)
       .sort((a, b) => Number(a) - Number(b))
       .forEach(year => {
-        const receiptsB = byYear[year].receipts / 1000;
-        const outlaysB = byYear[year].outlays / 1000;
+        const receipts = byYear[year].receipts / 1000;
+        const outlays = byYear[year].outlays / 1000;
 
         result[year] = {
           year: Number(year),
-          revenue: Number(receiptsB.toFixed(2)),
-          spent: Number(outlaysB.toFixed(2)),
-          deficit: Number((outlaysB - receiptsB).toFixed(2))
+          revenue: Number(receipts.toFixed(2)),
+          spent: Number(outlays.toFixed(2)),
+          deficit: Number((outlays - receipts).toFixed(2))
         };
       });
 
     return res.status(200).json({
       success: true,
-      source: 'US Treasury MTS API (filtered annual totals)',
-      rowsFetched: allRecords.length,
-      rowsAfterFilter: annualOnly.length,
-      years: Object.keys(result).length,
-      data: result,
-      timestamp: new Date().toISOString()
+      rows: all.length,
+      filtered: filtered.length,
+      data: result
     });
 
   } catch (err) {
-    console.error('❌ Treasury API failure:', err);
-
     return res.status(500).json({
       success: false,
       error: err.message
