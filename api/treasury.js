@@ -1,11 +1,9 @@
 /**
- * Vercel Backend - FINAL VERSION
- * Correctly sums monthly Receipts and Outlays by fiscal year
+ * Debug - Log absolutely everything
  */
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
@@ -14,80 +12,71 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🔄 Fetching Treasury data...');
-
     const url = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/mts/mts_receipts_outlays_deficit_surplus?sort=-record_date&page[size]=500';
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-    let response;
-    try {
-      response = await fetch(url, { signal: controller.signal });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
-    }
-
+    setTimeout(() => controller.abort(), 25000);
+    const response = await fetch(url, { signal: controller.signal });
     const apiData = await response.json();
-    console.log('✅ Got', apiData.data?.length, 'records');
 
-    // Group by fiscal year
-    const byYear = {};
+    console.log('📊 Total records:', apiData.data?.length);
+    
+    // Log first 10 records completely
+    console.log('📝 FIRST 10 RECORDS:');
+    apiData.data?.slice(0, 10).forEach((r, i) => {
+      console.log(`${i}: year=${r.record_fiscal_year}, category="${r.amt_category}", amount=${r.mil_amt}`);
+    });
 
-    apiData.data.forEach(record => {
-      const year = parseInt(record.record_fiscal_year);
-      const category = record.amt_category?.trim();
-      const amount = parseFloat(record.mil_amt) || 0; // mil_amt is in millions
+    // Check how many Receipts and Outlays we have
+    let receiptsCount = 0;
+    let outlaysCount = 0;
+    let otherCount = 0;
 
-      if (!year || year === 0) return;
+    apiData.data?.forEach(r => {
+      if (r.amt_category === 'Receipts') receiptsCount++;
+      else if (r.amt_category === 'Outlays') outlaysCount++;
+      else otherCount++;
+    });
 
-      if (!byYear[year]) {
-        byYear[year] = { receipts: 0, outlays: 0 };
-      }
+    console.log(`📊 Category counts: Receipts=${receiptsCount}, Outlays=${outlaysCount}, Other=${otherCount}`);
 
-      // Only sum Receipts and Outlays, ignore other categories
-      if (category === 'Receipts') {
-        byYear[year].receipts += amount;
-      } else if (category === 'Outlays') {
-        byYear[year].outlays += amount;
+    // Try to sum 2026 manually
+    let receipts2026 = 0;
+    let outlays2026 = 0;
+
+    apiData.data?.forEach(r => {
+      if (r.record_fiscal_year === '2026') {
+        if (r.amt_category === 'Receipts') {
+          const amt = parseFloat(r.mil_amt);
+          receipts2026 += amt;
+          console.log(`Receipts record: ${r.mil_amt}M (parsed: ${amt})`);
+        }
+        if (r.amt_category === 'Outlays') {
+          const amt = parseFloat(r.mil_amt);
+          outlays2026 += amt;
+          console.log(`Outlays record: ${r.mil_amt}M (parsed: ${amt})`);
+        }
       }
     });
 
-    // Convert to billions
-    const result = {};
-    Object.keys(byYear).sort().reverse().forEach(year => {
-      const data = byYear[year];
-      const revenue = data.receipts / 1000; // millions to billions
-      const spent = data.outlays / 1000;
-      const deficit = spent - revenue;
-
-      result[year] = {
-        year: parseInt(year),
-        revenue: parseFloat(revenue.toFixed(2)),
-        deficit: parseFloat(deficit.toFixed(2)),
-        spent: parseFloat(spent.toFixed(2))
-      };
-
-      console.log(`✅ FY ${year}: Revenue=$${revenue.toFixed(2)}B, Spent=$${spent.toFixed(2)}B, Deficit=$${deficit.toFixed(2)}B`);
-    });
+    console.log(`📊 2026 totals: Receipts=${receipts2026}M, Outlays=${outlays2026}M`);
 
     res.status(200).json({
       success: true,
-      data: result,
-      source: 'Treasury Fiscal Data API (REAL DATA)',
-      timestamp: new Date().toISOString()
+      debug: {
+        totalRecords: apiData.data?.length,
+        receiptsCount,
+        outlaysCount,
+        otherCount,
+        receipts2026,
+        outlays2026,
+        firstRecord: apiData.data?.[0]
+      },
+      message: 'Check Vercel logs for details'
     });
 
   } catch (error) {
     console.error('❌ ERROR:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      source: 'ERROR'
-    });
+    res.status(500).json({ error: error.message });
   }
 }
