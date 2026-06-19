@@ -1,97 +1,105 @@
+/**
+ * FIXED - Correctly parse amt_category and mil_amt
+ */
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.status(200).end();
+    return;
   }
 
   try {
-    const BASE_URL =
-      'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/mts/mts_receipts_outlays_deficit_surplus';
+    console.log('🔄 Fetching Treasury data...');
 
-    let all = [];
-    let page = 1;
-    let totalPages = 1;
+    const url = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/mts/mts_receipts_outlays_deficit_surplus?sort=-record_date&page[size]=500';
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-    do {
-      const url = `${BASE_URL}?page[number]=${page}&page[size]=1000&sort=record_date`;
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
-      const res2 = await fetch(url);
-      const json = await res2.json();
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
 
-      all.push(...(json.data || []));
+    const apiData = await response.json();
+    console.log('✅ Got', apiData.data?.length, 'records');
 
-      totalPages = Number(json.meta?.['total-pages'] || 1);
-      page++;
-    } while (page <= totalPages);
-
-    console.log('Rows fetched:', all.length);
-
-    // -----------------------------
-    // KEEP ONLY REAL TOTAL ROWS
-    // -----------------------------
-    const filtered = all.filter(r => {
-      const desc = (r.line_description || '').toLowerCase();
-      return (
-        desc.includes('total receipts') ||
-        desc.includes('total outlays')
-      );
-    });
-
-    console.log('Filtered rows:', filtered.length);
-
+    // Group by fiscal year
     const byYear = {};
 
-    for (const r of filtered) {
-      const year = Number(r.record_fiscal_year);
-      const amount = Number(r.mil_amt);
+    apiData.data.forEach(record => {
+      // Get year from record_fiscal_year field
+      const year = parseInt(record.record_fiscal_year);
+      
+      // Get category from amt_category field
+      const category = record.amt_category ? record.amt_category.trim() : '';
+      
+      // Get amount from mil_amt field (in millions)
+      const amount = parseFloat(record.mil_amt) || 0;
 
-      if (!year || !Number.isFinite(amount)) continue;
+      console.log(`Processing: year=${year}, category="${category}", amount=${amount}M`);
+
+      if (!year || year === 0) {
+        console.log('  → Skipping: invalid year');
+        return;
+      }
 
       if (!byYear[year]) {
         byYear[year] = { receipts: 0, outlays: 0 };
       }
 
-      const desc = (r.line_description || '').toLowerCase();
-
-      if (desc.includes('total receipts')) {
+      // Check category and add to appropriate sum
+      if (category === 'Receipts') {
         byYear[year].receipts += amount;
-      }
-
-      if (desc.includes('total outlays')) {
+        console.log(`  → Added to Receipts: now ${byYear[year].receipts}M`);
+      } else if (category === 'Outlays') {
         byYear[year].outlays += amount;
+        console.log(`  → Added to Outlays: now ${byYear[year].outlays}M`);
       }
-    }
-
-    const result = {};
-
-    Object.keys(byYear)
-      .sort((a, b) => Number(a) - Number(b))
-      .forEach(year => {
-        const receipts = byYear[year].receipts / 1000;
-        const outlays = byYear[year].outlays / 1000;
-
-        result[year] = {
-          year: Number(year),
-          revenue: Number(receipts.toFixed(2)),
-          spent: Number(outlays.toFixed(2)),
-          deficit: Number((outlays - receipts).toFixed(2))
-        };
-      });
-
-    return res.status(200).json({
-      success: true,
-      rows: all.length,
-      filtered: filtered.length,
-      data: result
     });
 
-  } catch (err) {
-    return res.status(500).json({
+    console.log('📊 Grouped data:', JSON.stringify(byYear));
+
+    // Convert to billions
+    const result = {};
+    for (const year in byYear) {
+      const data = byYear[year];
+      const revenue = data.receipts / 1000;
+      const spent = data.outlays / 1000;
+      const deficit = spent - revenue;
+
+      result[year] = {
+        year: parseInt(year),
+        revenue: parseFloat(revenue.toFixed(2)),
+        deficit: parseFloat(deficit.toFixed(2)),
+        spent: parseFloat(spent.toFixed(2))
+      };
+
+      console.log(`✅ FY ${year}: Revenue=$${revenue.toFixed(2)}B, Spent=$${spent.toFixed(2)}B, Deficit=$${deficit.toFixed(2)}B`);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      source: 'Treasury Fiscal Data API (REAL DATA)',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ ERROR:', error.message);
+    res.status(500).json({
       success: false,
-      error: err.message
+      error: error.message
     });
   }
 }
