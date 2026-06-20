@@ -1,6 +1,5 @@
 /**
- * Spending Distribution Endpoint
- * Fetches agency spending from Statement of Net Cost
+ * Debug Spending Endpoint
  */
 
 export default async function handler(req, res) {
@@ -34,6 +33,12 @@ export default async function handler(req, res) {
 
     const apiData = await response.json();
     console.log('✅ Got spending records:', apiData.data?.length);
+    
+    // Log first 5 records completely
+    console.log('📝 First 5 records:');
+    apiData.data?.slice(0, 5).forEach((r, i) => {
+      console.log(`Record ${i}: year=${r.reporting_fiscal_year}, agency="${r.agency_name}", cost=${r.net_cost_of_operations_amt}`);
+    });
 
     // Group by fiscal year and agency
     const byYear = {};
@@ -43,7 +48,12 @@ export default async function handler(req, res) {
       const agency = record.agency_name || record.entity_name || 'Other';
       const cost = parseFloat(record.net_cost_of_operations_amt) || 0;
 
-      if (!year || year === 0 || cost <= 0) return;
+      console.log(`Processing: year=${year}, agency="${agency}", cost=${cost}`);
+
+      if (!year || year === 0 || cost <= 0) {
+        console.log('  → Skipping: invalid year or cost');
+        return;
+      }
 
       if (!byYear[year]) {
         byYear[year] = {};
@@ -54,6 +64,8 @@ export default async function handler(req, res) {
       }
       byYear[year][agency] += cost;
     });
+
+    console.log('📊 Grouped data:', JSON.stringify(byYear));
 
     // Format result
     const result = {};
