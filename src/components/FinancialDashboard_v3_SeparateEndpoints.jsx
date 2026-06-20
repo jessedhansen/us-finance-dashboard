@@ -1,64 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 
-const mockBudgetData = [
-  { name: 'HHS', value: 2170 },
-  { name: 'Social Security', value: 1545 },
-  { name: 'Defense', value: 820 },
-  { name: 'Veterans Affairs', value: 301 },
-  { name: 'Education', value: 238 },
-  { name: 'Transportation', value: 146 },
-  { name: 'Homeland Security', value: 131 },
-  { name: 'State Dept', value: 92 }
-];
-
 const FinancialDashboard = () => {
   const [currentPage, setCurrentPage] = useState('overview');
   const [selectedYear, setSelectedYear] = useState(null);
-  const [budgetData, setBudgetData] = useState(null);
   const [historicalData, setHistoricalData] = useState(null);
+  const [spendingByAgency, setSpendingByAgency] = useState({});
   const [inflationData, setInflationData] = useState(null);
   const [jobsData, setJobsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState('loading...');
   const [availableYears, setAvailableYears] = useState([]);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        setError(null);
-        console.log('🔄 Fetching REAL Treasury data from backend...');
+        console.log('🔄 Fetching Treasury data...');
         
-        const apiUrl = process.env.NODE_ENV === 'production' 
-          ? '/api/treasury'
-          : 'http://localhost:3001/api/treasury';
-        
-        console.log('📡 API URL:', apiUrl);
-        const response = await fetch(apiUrl);
-        console.log('📊 Response status:', response.status);
-        const result = await response.json();
-        console.log('✅ Backend response:', result);
+        const baseUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
 
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to fetch Treasury data');
+        // Fetch both endpoints in parallel
+        const [budgetRes, spendingRes] = await Promise.all([
+          fetch(`${baseUrl}/api/treasury`),
+          fetch(`${baseUrl}/api/spending`)
+        ]);
+
+        const budgetData = await budgetRes.json();
+        const spendingData = await spendingRes.json();
+
+        console.log('✅ Budget data:', budgetData);
+        console.log('✅ Spending data:', spendingData);
+
+        if (!budgetData.success) {
+          throw new Error('Failed to fetch budget data');
         }
 
-        if (result.data) {
-          console.log('📊 Got real data from Treasury API!');
-          setDataSource(`${result.source} ✓`);
+        if (budgetData.data) {
+          setDataSource('Treasury Fiscal Data API ✓');
 
           const historicalArray = [];
           const years = [];
           
-          for (const year in result.data) {
-            const yearData = result.data[year];
+          for (const year in budgetData.data) {
             historicalArray.push({
               year: parseInt(year),
-              revenue: parseFloat(yearData.revenue),
-              deficit: parseFloat(yearData.deficit),
-              spent: parseFloat(yearData.spent)
+              revenue: parseFloat(budgetData.data[year].revenue),
+              deficit: parseFloat(budgetData.data[year].deficit),
+              spent: parseFloat(budgetData.data[year].spent)
             });
             years.push(parseInt(year));
           }
@@ -66,43 +55,23 @@ const FinancialDashboard = () => {
           historicalArray.sort((a, b) => b.year - a.year);
           years.sort((a, b) => b - a);
 
-          console.log('📈 Available years:', years);
-          console.log('📈 Historical data:', historicalArray);
-
           setAvailableYears(years);
           setHistoricalData(historicalArray);
           
           if (years.length > 0) {
-            const mostRecentYear = years[0];
-            setSelectedYear(mostRecentYear);
-            console.log(`✅ Set default year to ${mostRecentYear}`);
+            setSelectedYear(years[0]);
           }
+        }
 
-          historicalArray.forEach(item => {
-            console.log(`Year ${item.year}: Revenue=$${item.revenue}B, Deficit=$${item.deficit}B, Spent=$${item.spent}B`);
-          });
-
-        } else {
-          throw new Error('No data in response');
+        // Store spending data by year
+        if (spendingData.success && spendingData.data) {
+          setSpendingByAgency(spendingData.data);
         }
 
       } catch (error) {
-        console.error('❌ Error fetching from backend:', error);
-        setError(`Error: ${error.message}`);
-        setDataSource('ERROR - Could not fetch from Treasury API');
-        
-        setAvailableYears([2024, 2023, 2022, 2021, 2020]);
-        setSelectedYear(2024);
-        const mockHistorical = [
-          { year: 2024, revenue: 4844.92, deficit: 1830, spent: 6674.92 },
-          { year: 2023, revenue: 4761.38, deficit: 1695.23, spent: 6456.61 },
-          { year: 2022, revenue: 4896.12, deficit: 1375.45, spent: 6271.57 },
-          { year: 2021, revenue: 4047.87, deficit: 2771.52, spent: 6819.39 },
-          { year: 2020, revenue: 3420.61, deficit: 3131.82, spent: 6552.43 }
-        ];
-        setHistoricalData(mockHistorical);
+        console.error('❌ Error:', error);
+        setDataSource('ERROR');
       } finally {
-        setBudgetData(mockBudgetData);
         setInflationData([
           { month: 'Jan', rate: 3.4 },
           { month: 'Feb', rate: 3.5 },
@@ -121,13 +90,11 @@ const FinancialDashboard = () => {
           establishment: {
             totalGain: 256000,
             unemploymentRate: 3.9,
-            laborForceParticipation: 63.0,
             avgHourlyWage: 34.91
           },
           household: {
             employed: 161800000,
             unemployed: 6600000,
-            notInLaborForce: 97100000,
             employmentPopulationRatio: 60.2
           }
         });
@@ -144,13 +111,15 @@ const FinancialDashboard = () => {
     historicalData.find(d => d.year === selectedYear) 
     : null;
 
+  const currentYearSpending = spendingByAgency[selectedYear] || [];
+
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh', fontFamily: 'sans-serif' }}>
       <div style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
             <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>USFinance.io 💰</h1>
-            <div style={{ fontSize: '11px', color: '#999', padding: '4px 8px', background: '#f0f0f0', borderRadius: '4px', maxWidth: '250px' }}>
+            <div style={{ fontSize: '11px', color: '#999', padding: '4px 8px', background: '#f0f0f0', borderRadius: '4px' }}>
               {dataSource}
             </div>
           </div>
@@ -182,22 +151,12 @@ const FinancialDashboard = () => {
         </div>
       </div>
 
-      {error && (
-        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '15px 20px', borderBottom: '1px solid #fecaca', textAlign: 'center' }}>
-          <strong>⚠️ {error}</strong>
-        </div>
-      )}
-
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
-        {loading && (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
-            <p>Loading real Treasury data from API...</p>
-          </div>
-        )}
+        {loading && <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>Loading data...</div>}
 
         {!loading && (
           <>
-            {currentPage === 'overview' && budgetData && currentYearData && (
+            {currentPage === 'overview' && currentYearData && (
               <div>
                 <h2 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '20px' }}>Federal Budget Analysis</h2>
                 
@@ -216,9 +175,7 @@ const FinancialDashboard = () => {
                     }}
                   >
                     {availableYears.map(year => (
-                      <option key={year} value={year}>
-                        {year} {year === availableYears[0] ? '(Current)' : ''}
-                      </option>
+                      <option key={year} value={year}>{year}</option>
                     ))}
                   </select>
                 </div>
@@ -229,7 +186,6 @@ const FinancialDashboard = () => {
                     <div style={{ fontSize: '28px', fontWeight: '700', color: '#16a34a' }}>
                       ${currentYearData.revenue.toFixed(2)}B
                     </div>
-                    <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>Exact amount collected from taxes</div>
                   </div>
                   
                   <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: '4px solid #dc2626' }}>
@@ -237,7 +193,6 @@ const FinancialDashboard = () => {
                     <div style={{ fontSize: '28px', fontWeight: '700', color: '#dc2626' }}>
                       ${currentYearData.deficit.toFixed(2)}B
                     </div>
-                    <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>Exact amount spent over budget</div>
                   </div>
 
                   <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: '4px solid #2563eb' }}>
@@ -245,22 +200,27 @@ const FinancialDashboard = () => {
                     <div style={{ fontSize: '28px', fontWeight: '700', color: '#2563eb' }}>
                       ${currentYearData.spent.toFixed(2)}B
                     </div>
-                    <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>Budget + Deficit (exact)</div>
                   </div>
                 </div>
 
                 <div style={{ background: 'white', borderRadius: '12px', padding: '30px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '20px' }}>Spending Distribution by Department ({selectedYear})</h3>
-                  <ResponsiveContainer width="100%" height={400}>
-                    <PieChart key={selectedYear}>
-                      <Pie data={budgetData} cx="50%" cy="50%" labelLine={false} label={({ name, value }) => `${name}\n$${value}B`} outerRadius={100} fill="#8884d8" dataKey="value">
-                        {budgetData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => `$${value}B`} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <h3 style={{ marginTop: 0, marginBottom: '20px' }}>Spending Distribution by Agency ({selectedYear})</h3>
+                  {currentYearSpending && currentYearSpending.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={400}>
+                      <PieChart key={selectedYear}>
+                        <Pie data={currentYearSpending} cx="50%" cy="50%" labelLine={false} label={({ name, value }) => `${name}\n$${value}B`} outerRadius={100} fill="#8884d8" dataKey="value">
+                          {currentYearSpending.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => `$${value}B`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                      No spending data available
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -311,29 +271,11 @@ const FinancialDashboard = () => {
                       <div style={{ fontSize: '12px', color: '#666' }}>Job Gains</div>
                       <div style={{ fontSize: '24px', fontWeight: '700', color: '#22c55e' }}>+256K</div>
                     </div>
-                    <div style={{ marginBottom: '15px' }}>
-                      <div style={{ fontSize: '12px', color: '#666' }}>Unemployment Rate</div>
-                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#3b82f6' }}>3.9%</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>Avg Hourly Wage</div>
-                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#f97316' }}>$34.91</div>
-                    </div>
                   </div>
                   <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
                     <h3 style={{ marginTop: 0 }}>Household Survey</h3>
-                    <div style={{ marginBottom: '15px' }}>
-                      <div style={{ fontSize: '12px', color: '#666' }}>Employed</div>
-                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#22c55e' }}>161.8M</div>
-                    </div>
-                    <div style={{ marginBottom: '15px' }}>
-                      <div style={{ fontSize: '12px', color: '#666' }}>Unemployed</div>
-                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#dc2626' }}>6.6M</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>Employment-Pop Ratio</div>
-                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#3b82f6' }}>60.2%</div>
-                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>Employed</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: '#22c55e' }}>161.8M</div>
                   </div>
                 </div>
               </div>
@@ -343,7 +285,7 @@ const FinancialDashboard = () => {
       </div>
 
       <div style={{ background: '#1a202c', color: 'white', padding: '40px 20px', textAlign: 'center', marginTop: '60px' }}>
-        <p>USFinance.io - Real-time US Government Financial Data</p>
+        <p>USFinance.io - Real US Government Financial Data</p>
         <p style={{ color: '#999', fontSize: '13px' }}>Source: {dataSource}</p>
       </div>
     </div>
