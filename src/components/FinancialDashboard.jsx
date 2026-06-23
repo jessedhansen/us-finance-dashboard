@@ -5,7 +5,7 @@ const FinancialDashboard = () => {
   const [currentPage, setCurrentPage] = useState('overview');
   const [selectedYear, setSelectedYear] = useState(null);
   const [historicalData, setHistoricalData] = useState(null);
-  const [spendingByAgency, setSpendingByAgency] = useState({});
+  const [spendingByYear, setSpendingByYear] = useState({});
   const [inflationData, setInflationData] = useState(null);
   const [jobsData, setJobsData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,9 +63,41 @@ const FinancialDashboard = () => {
           }
         }
 
-        // Store spending data by year
+        // Process spending data
         if (spendingData.success && spendingData.data) {
-          setSpendingByAgency(spendingData.data);
+          const processedSpending = {};
+          
+          // Group by reporting_fiscal_year and agency
+          spendingData.data.forEach(record => {
+            const year = parseInt(record.reporting_fiscal_year);
+            const agency = record.agency_name || record.entity_name || 'Other';
+            const cost = parseFloat(record.net_cost_of_operations_amt) || 0;
+
+            if (!year || year === 0 || cost <= 0) return;
+
+            if (!processedSpending[year]) {
+              processedSpending[year] = {};
+            }
+            if (!processedSpending[year][agency]) {
+              processedSpending[year][agency] = 0;
+            }
+            processedSpending[year][agency] += cost;
+          });
+
+          // Convert to pie chart format
+          const pieChartData = {};
+          for (const year in processedSpending) {
+            pieChartData[year] = Object.entries(processedSpending[year])
+              .map(([name, cost]) => ({
+                name: name.replace(/^Department of |^Social Security Administration|^Internal Revenue Service/g, '').substring(0, 20),
+                value: parseFloat((cost / 1000000000).toFixed(2)) // Convert to billions
+              }))
+              .sort((a, b) => b.value - a.value)
+              .slice(0, 8);
+          }
+
+          console.log('📊 Processed spending:', pieChartData);
+          setSpendingByYear(pieChartData);
         }
 
       } catch (error) {
@@ -111,7 +143,7 @@ const FinancialDashboard = () => {
     historicalData.find(d => d.year === selectedYear) 
     : null;
 
-  const currentYearSpending = spendingByAgency[selectedYear] || [];
+  const currentYearSpending = spendingByYear[selectedYear] || [];
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh', fontFamily: 'sans-serif' }}>
@@ -218,7 +250,7 @@ const FinancialDashboard = () => {
                     </ResponsiveContainer>
                   ) : (
                     <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                      No spending data available
+                      No spending data available for {selectedYear}
                     </div>
                   )}
                 </div>

@@ -1,5 +1,6 @@
 /**
- * Spending Distribution Endpoint - WORKING VERSION
+ * Spending Distribution Endpoint
+ * Agency spending from Statement of Net Cost
  */
 
 export default async function handler(req, res) {
@@ -34,46 +35,10 @@ export default async function handler(req, res) {
     const apiData = await response.json();
     console.log('✅ Got spending records:', apiData.data?.length);
 
-    // Group by fiscal year and agency
-    const byYear = {};
-
-    apiData.data?.forEach(record => {
-      const year = parseInt(record.reporting_fiscal_year);
-      const agency = record.agency_name || record.entity_name || 'Other';
-      const cost = parseFloat(record.net_cost_of_operations_amt) || 0;
-
-      if (!year || year === 0 || cost <= 0) return;
-
-      if (!byYear[year]) {
-        byYear[year] = {};
-      }
-
-      if (!byYear[year][agency]) {
-        byYear[year][agency] = 0;
-      }
-      byYear[year][agency] += cost;
-    });
-
-    console.log('📊 Grouped data:', JSON.stringify(byYear));
-
-    // Format result
-    const result = {};
-    for (const year in byYear) {
-      const agencies = Object.entries(byYear[year])
-        .map(([name, cost]) => ({
-          name: name.replace(/^Department of |^Social Security Administration|^Internal Revenue Service/g, '').substring(0, 20),
-          value: parseFloat((cost / 1000).toFixed(2))
-        }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 8);
-
-      result[year] = agencies;
-      console.log(`✅ FY ${year}: ${agencies.length} agencies`);
-    }
-
     res.status(200).json({
       success: true,
-      data: result,
+      data: apiData.data || [],
+      meta: apiData.meta || {},
       source: 'Treasury Statement of Net Cost API',
       timestamp: new Date().toISOString()
     });
