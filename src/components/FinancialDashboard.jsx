@@ -29,7 +29,7 @@ const FinancialDashboard = () => {
         const spendingData = await spendingRes.json();
 
         console.log('✅ Budget data:', budgetData);
-        console.log('✅ Raw spending data:', spendingData);
+        console.log('✅ Spending response:', spendingData);
 
         if (!budgetData.success) {
           throw new Error('Failed to fetch budget data');
@@ -62,62 +62,49 @@ const FinancialDashboard = () => {
           }
         }
 
-        // Process spending data - handle both array and object formats
-        if (spendingData.success) {
-          let spendingArray = [];
-          
-          if (Array.isArray(spendingData.data)) {
-            spendingArray = spendingData.data;
-          } else if (spendingData.data && typeof spendingData.data === 'object') {
-            spendingArray = Object.values(spendingData.data).flat();
-          }
-
-          console.log('📊 Spending array length:', spendingArray.length);
-          console.log('📋 First spending record fields:', spendingArray[0] ? Object.keys(spendingArray[0]) : []);
-          console.log('📝 First 3 spending records:', spendingArray.slice(0, 3));
-
+        // Process spending data with better error handling
+        if (spendingData && spendingData.success && spendingData.data && Array.isArray(spendingData.data)) {
+          console.log('📊 Processing spending data...');
           const processedSpending = {};
           
-          spendingArray.forEach((record, idx) => {
-            // Try different field names
-            const year = parseInt(record.reporting_fiscal_year || record.fiscal_year || record.record_fiscal_year);
-            const agency = record.agency_name || record.entity_name || record.agency || 'Other';
-            const cost = parseFloat(record.net_cost_of_operations_amt || record.amount || record.cost || 0);
+          spendingData.data.forEach((record) => {
+            try {
+              const year = parseInt(record.reporting_fiscal_year);
+              const agency = record.agency_name || record.entity_name || 'Other';
+              const cost = parseFloat(record.net_cost_of_operations_amt) || 0;
 
-            if (idx < 3) {
-              console.log(`Record ${idx}: year=${year}, agency="${agency}", cost=${cost}`);
-            }
+              if (!year || year === 0 || cost <= 0) return;
 
-            if (!year || year === 0 || cost <= 0) return;
-
-            if (!processedSpending[year]) {
-              processedSpending[year] = {};
+              if (!processedSpending[year]) {
+                processedSpending[year] = {};
+              }
+              if (!processedSpending[year][agency]) {
+                processedSpending[year][agency] = 0;
+              }
+              processedSpending[year][agency] += cost;
+            } catch (e) {
+              console.warn('Error processing record:', record, e);
             }
-            if (!processedSpending[year][agency]) {
-              processedSpending[year][agency] = 0;
-            }
-            processedSpending[year][agency] += cost;
           });
 
-          console.log('📊 Processed spending by year:', Object.keys(processedSpending));
+          console.log('📊 Processed years:', Object.keys(processedSpending));
 
-          // Convert to pie chart format
           const pieChartData = {};
           for (const year in processedSpending) {
-            const agencies = Object.entries(processedSpending[year])
+            pieChartData[year] = Object.entries(processedSpending[year])
               .map(([name, cost]) => ({
                 name: name.replace(/^Department of |^Social Security Administration|^Internal Revenue Service/g, '').substring(0, 20),
                 value: parseFloat((cost / 1000000000).toFixed(2))
               }))
               .sort((a, b) => b.value - a.value)
               .slice(0, 8);
-            
-            pieChartData[year] = agencies;
-            console.log(`✅ FY ${year}: ${agencies.length} agencies, total $${agencies.reduce((sum, a) => sum + a.value, 0).toFixed(2)}B`);
           }
 
-          console.log('🎨 Final pie chart data:', pieChartData);
+          console.log('🎨 Pie chart data:', pieChartData);
           setSpendingByYear(pieChartData);
+        } else {
+          console.warn('⚠️ Spending data not available:', spendingData);
+          setSpendingByYear({});
         }
 
       } catch (error) {
@@ -164,8 +151,6 @@ const FinancialDashboard = () => {
     : null;
 
   const currentYearSpending = spendingByYear[selectedYear] || [];
-
-  console.log('🎯 Current year:', selectedYear, 'Spending data:', currentYearSpending);
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh', fontFamily: 'sans-serif' }}>
@@ -272,8 +257,7 @@ const FinancialDashboard = () => {
                     </ResponsiveContainer>
                   ) : (
                     <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                      <p>No spending data available for {selectedYear}</p>
-                      <p style={{ fontSize: '12px' }}>Available years: {Object.keys(spendingByYear).join(', ')}</p>
+                      <p>Loading agency spending data...</p>
                     </div>
                   )}
                 </div>

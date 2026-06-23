@@ -1,6 +1,5 @@
 /**
- * Spending Distribution Endpoint
- * Agency spending from Statement of Net Cost
+ * Spending Distribution Endpoint - FIXED
  */
 
 export default async function handler(req, res) {
@@ -34,20 +33,25 @@ export default async function handler(req, res) {
 
     const apiData = await response.json();
     console.log('✅ Got spending records:', apiData.data?.length);
+    console.log('📋 First record:', apiData.data?.[0]);
 
-    res.status(200).json({
+    // Return raw data - let frontend process it
+    const result = {
       success: true,
       data: apiData.data || [],
-      meta: apiData.meta || {},
       source: 'Treasury Statement of Net Cost API',
       timestamp: new Date().toISOString()
-    });
+    };
+
+    console.log('📤 Returning:', result);
+    res.status(200).json(result);
 
   } catch (error) {
-    console.error('❌ ERROR:', error.message);
+    console.error('❌ ERROR:', error.message, error.stack);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 }
