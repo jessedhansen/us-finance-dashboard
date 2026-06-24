@@ -1,6 +1,5 @@
 /**
  * Treasury Receipts & Outlays Endpoint
- * Only handles budget totals, not spending distribution
  */
 
 export default async function handler(req, res) {
