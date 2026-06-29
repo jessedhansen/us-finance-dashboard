@@ -1,6 +1,5 @@
 /**
- * Spending Distribution Endpoint
- * Using accurate mock data (Treasury API endpoint having issues)
+ * Spending Distribution - Fetch from Real API
  */
 
 export default async function handler(req, res) {
@@ -13,49 +12,57 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Accurate agency spending data based on fiscal.treasury.gov
-  const spendingData = {
-    success: true,
-    data: [
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Defense', net_cost_of_operations_amt: '820000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Social Security Administration', net_cost_of_operations_amt: '1350000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Health and Human Services', net_cost_of_operations_amt: '1800000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Veterans Affairs', net_cost_of_operations_amt: '300000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Transportation', net_cost_of_operations_amt: '150000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Education', net_cost_of_operations_amt: '450000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Homeland Security', net_cost_of_operations_amt: '200000000000' },
-      { reporting_fiscal_year: '2026', agency_name: 'Department of Interior', net_cost_of_operations_amt: '80000000000' },
-      
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Defense', net_cost_of_operations_amt: '800000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Social Security Administration', net_cost_of_operations_amt: '1330000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Health and Human Services', net_cost_of_operations_amt: '1750000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Veterans Affairs', net_cost_of_operations_amt: '290000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Transportation', net_cost_of_operations_amt: '140000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Education', net_cost_of_operations_amt: '420000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Homeland Security', net_cost_of_operations_amt: '190000000000' },
-      { reporting_fiscal_year: '2025', agency_name: 'Department of Interior', net_cost_of_operations_amt: '75000000000' },
-      
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Defense', net_cost_of_operations_amt: '780000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Social Security Administration', net_cost_of_operations_amt: '1300000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Health and Human Services', net_cost_of_operations_amt: '1700000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Veterans Affairs', net_cost_of_operations_amt: '280000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Transportation', net_cost_of_operations_amt: '130000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Education', net_cost_of_operations_amt: '400000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Homeland Security', net_cost_of_operations_amt: '180000000000' },
-      { reporting_fiscal_year: '2024', agency_name: 'Department of Interior', net_cost_of_operations_amt: '70000000000' },
-      
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Defense', net_cost_of_operations_amt: '750000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Social Security Administration', net_cost_of_operations_amt: '1280000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Health and Human Services', net_cost_of_operations_amt: '1650000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Veterans Affairs', net_cost_of_operations_amt: '270000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Transportation', net_cost_of_operations_amt: '120000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Education', net_cost_of_operations_amt: '380000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Homeland Security', net_cost_of_operations_amt: '170000000000' },
-      { reporting_fiscal_year: '2023', agency_name: 'Department of Interior', net_cost_of_operations_amt: '65000000000' },
-    ],
-    source: 'Treasury Fiscal Data',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const url = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/statement_net_cost?page[size]=500';
 
-  res.status(200).json(spendingData);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+
+    const apiData = await response.json();
+
+    const byYear = {};
+    apiData.data?.forEach(record => {
+      const year = parseInt(record.reporting_fiscal_year);
+      const agency = record.agency_name || record.entity_name || 'Other';
+      const cost = parseFloat(record.net_cost_of_operations_amt) || 0;
+
+      if (!year || year === 0 || cost <= 0) return;
+
+      if (!byYear[year]) {
+        byYear[year] = {};
+      }
+      if (!byYear[year][agency]) {
+        byYear[year][agency] = 0;
+      }
+      byYear[year][agency] += cost;
+    });
+
+    const result = {};
+    for (const year in byYear) {
+      result[year] = Object.entries(byYear[year])
+        .map(([name, cost]) => ({
+          name: name.replace(/^Department of |^Social Security Administration|^Internal Revenue Service/g, '').substring(0, 20),
+          value: parseFloat((cost / 1000000000).toFixed(2))
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      source: 'Treasury API',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('ERROR:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 }

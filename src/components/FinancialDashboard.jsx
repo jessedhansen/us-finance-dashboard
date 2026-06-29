@@ -16,7 +16,6 @@ const FinancialDashboard = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        console.log('🔄 Fetching Treasury data...');
         
         const baseUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
 
@@ -27,9 +26,6 @@ const FinancialDashboard = () => {
 
         const budgetData = await budgetRes.json();
         const spendingData = await spendingRes.json();
-
-        console.log('✅ Budget data:', budgetData);
-        console.log('✅ Spending response:', spendingData);
 
         if (!budgetData.success) {
           throw new Error('Failed to fetch budget data');
@@ -62,49 +58,8 @@ const FinancialDashboard = () => {
           }
         }
 
-        // Process spending data with better error handling
-        if (spendingData && spendingData.success && spendingData.data && Array.isArray(spendingData.data)) {
-          console.log('📊 Processing spending data...');
-          const processedSpending = {};
-          
-          spendingData.data.forEach((record) => {
-            try {
-              const year = parseInt(record.reporting_fiscal_year);
-              const agency = record.agency_name || record.entity_name || 'Other';
-              const cost = parseFloat(record.net_cost_of_operations_amt) || 0;
-
-              if (!year || year === 0 || cost <= 0) return;
-
-              if (!processedSpending[year]) {
-                processedSpending[year] = {};
-              }
-              if (!processedSpending[year][agency]) {
-                processedSpending[year][agency] = 0;
-              }
-              processedSpending[year][agency] += cost;
-            } catch (e) {
-              console.warn('Error processing record:', record, e);
-            }
-          });
-
-          console.log('📊 Processed years:', Object.keys(processedSpending));
-
-          const pieChartData = {};
-          for (const year in processedSpending) {
-            pieChartData[year] = Object.entries(processedSpending[year])
-              .map(([name, cost]) => ({
-                name: name.replace(/^Department of |^Social Security Administration|^Internal Revenue Service/g, '').substring(0, 20),
-                value: parseFloat((cost / 1000000000).toFixed(2))
-              }))
-              .sort((a, b) => b.value - a.value)
-              .slice(0, 8);
-          }
-
-          console.log('🎨 Pie chart data:', pieChartData);
-          setSpendingByYear(pieChartData);
-        } else {
-          console.warn('⚠️ Spending data not available:', spendingData);
-          setSpendingByYear({});
+        if (spendingData && spendingData.success && spendingData.data) {
+          setSpendingByYear(spendingData.data);
         }
 
       } catch (error) {
@@ -257,7 +212,7 @@ const FinancialDashboard = () => {
                     </ResponsiveContainer>
                   ) : (
                     <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                      <p>Loading agency spending data...</p>
+                      Loading agency spending data...
                     </div>
                   )}
                 </div>
